@@ -3,7 +3,7 @@ from pathlib import Path
 import threading
 import numpy as np
 import customtkinter as ctk
-from tkinter import filedialog
+from tkinter import filedialog, Menu
 import soundfile as sf
 from scipy.signal import fftconvolve, resample
 import sounddevice as sd
@@ -15,7 +15,7 @@ class ReverbAula(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('Reverb en base IR del aula')
-        self.geometry('500x400')
+        self.geometry('500x420')
 
         self.audio_path = None
         self.ir_path = None
@@ -25,9 +25,45 @@ class ReverbAula(ctk.CTk):
         self.fs = 44100
         self.fs_ir = 44100
 
+        self.carpeta_ir = Path(__file__).parent / 'IR'
+        self.presets = {}
+        self.escanear_presets()
+
         self.inicializar_ui()
 
+        if self.presets:
+            self.cambiar_preset(list(self.presets.keys())[0])
+        else:
+            self.lbl_nombre_preset.configure(text = 'No se encontraron IRs')
+            self.btn_prev_preset.configure(state = 'disabled')
+            self.btn_next_preset.configure(state = 'disabled')
+
+    def escanear_presets(self):
+        if not self.carpeta_ir.exists():
+            self.carpeta_ir.mkdir(parents = True, exist_ok = True)
+            return
+        
+        archivos_wav = sorted(self.carpeta_ir.glob('*.[wW][aA][vV]'))
+
+        for ruta in archivos_wav:
+            nombre = ruta.stem.replace('_', ' ').title()
+            self.presets[nombre] = ruta
+
     def inicializar_ui(self):
+        self.frame_preset = ctk.CTkFrame(self)
+        self.frame_preset.pack(pady = (15, 5), padx = 20, fill = 'x')
+        self.frame_preset.grid_columnconfigure(1, weight=1)
+
+        self.btn_prev_preset = ctk.CTkButton(self.frame_preset, text = '◀', width = 40, command = self.preset_anterior)
+        self.btn_prev_preset.grid(row = 0, column = 0, padx = 10, pady = 10)
+
+        self.lbl_nombre_preset = ctk.CTkLabel(self.frame_preset, text = 'Buscando IRs...', font = ctk.CTkFont(size = 15, weight = 'bold'), cursor = 'hand2')
+        self.lbl_nombre_preset.grid(row = 0, column = 1, padx = 10, pady = 10, sticky = 'ew')
+        self.lbl_nombre_preset.bind("<Button-1>", self.mostrar_menu_desplegable)
+
+        self.btn_next_preset = ctk.CTkButton(self.frame_preset, text = '▶', width = 40, command = self.preset_siguiente)
+        self.btn_next_preset.grid(row = 0, column = 2, padx = 10, pady = 10)
+
         self.frame_archivo = ctk.CTkFrame(self)
         self.frame_archivo.pack(pady = 15, padx = 20, fill = 'x')
 
@@ -36,17 +72,12 @@ class ReverbAula(ctk.CTk):
         self.lbl_estado_audio = ctk.CTkLabel(self.frame_archivo, text = 'No hay ningún archivo cargado')
         self.lbl_estado_audio.grid(row = 0, column = 1, padx = 10, pady = 10)
 
-        self.btn_cargar_ir = ctk.CTkButton(self.frame_archivo, text = 'Cargar IR', command = self.cargar_ir)
-        self.btn_cargar_ir.grid(row = 1, column = 0, padx = 10, pady = 10)
-        self.lbl_estado_ir = ctk.CTkLabel(self.frame_archivo, text = 'No hay ninguna IR cargada (se usa una artificial)')
-        self.lbl_estado_ir.grid(row = 1, column = 1, padx = 10, pady = 10)
-
         self.frame_parametros = ctk.CTkFrame(self)
         self.frame_parametros.pack(pady = 15, padx = 20, fill = 'x')
 
         self.lbl_decay = ctk.CTkLabel(self.frame_parametros, text = 'Escalado de decay: 1.0')
         self.lbl_decay.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_decay = ctk.CTkSlider(self.frame_parametros, from_ = 0.1, to = 5.0, number_of_steps = 58, command = self.actualizar_lbl_decay)
+        self.slider_decay = ctk.CTkSlider(self.frame_parametros, from_ = 0.1, to = 5.0, number_of_steps = 49, command = self.actualizar_lbl_decay)
         self.slider_decay.set(1.0)
         self.slider_decay.pack(fill = 'x', padx = 15, pady = (0, 10))
 
@@ -82,21 +113,51 @@ class ReverbAula(ctk.CTk):
         if raw_filepath:
             self.audio_path = Path(raw_filepath)
             self.audio_dry, self.fs = sf.read(self.audio_path, always_2d = True)
+
+            if self.audio_dry.shape[1] == 1:
+                self.audio_dry = np.hstack([self.audio_dry, self.audio_dry])
+
             self.lbl_estado_audio.configure(text=f'{self.audio_path.name} ({self.fs} Hz)')
 
-    def cargar_ir(self):
-        raw_filepath = filedialog.askopenfilename(filetypes = [('Archivos de audio', '*.wav *.flac *.mp3')])
-        if raw_filepath:
-            self.ir_path = Path(raw_filepath)
-            audio_ir_raw, self.fs_ir = sf.read(self.ir_path, always_2d = True)
+    def mostrar_menu_desplegable(self, event):
+        if not self.presets:
+            return
+
+        menu_contextual = Menu(self, tearoff = 0)
+
+        fuente = ctk.CTkFont(size = 12)
+        familia_fuente = fuente.cget('family')
+
+        menu_contextual.configure(
+            bg = '#2b2b2b' if ctk.get_appearance_mode() == 'Dark' else '#dbdbdb',
+            fg = 'white' if ctk.get_appearance_mode() == 'Dark' else 'black',
+            activebackground = '#1f6aa5',
+            activeforeground = 'white',
+            font = (familia_fuente, 11)
+        )
+
+        for nombre in self.presets.keys():
+            menu_contextual.add_command(label = nombre, command = lambda name = nombre: self.cambiar_preset(name))
+
+        menu_contextual.tk_popup(event.x_root, event.y_root)
+    
+    def cambiar_preset(self, preset):
+        if preset not in self.presets:
+            return
+        
+        self.lbl_nombre_preset.configure(text = preset)
+
+        ruta_ir = self.presets[preset]
+        try:
+            audio_ir_raw, self.fs_ir = sf.read(ruta_ir, always_2d = True)
 
             audio_ir_plano = np.squeeze(audio_ir_raw)
             if audio_ir_plano.ndim > 1:
                 audio_ir_plano = audio_ir_plano[:, 0]
             
-            pico_index = np.argmax(np.abs(audio_ir_plano))
-            audio_ir_recortado = audio_ir_raw[pico_index:]
-            audio_ir_plano_recortado = audio_ir_plano[pico_index:]
+            ind_pico = np.argmax(np.abs(audio_ir_plano))
+            audio_ir_recortado = audio_ir_raw[ind_pico:]
+            audio_ir_plano_recortado = audio_ir_plano[ind_pico:]
 
             umbral = 0.01 * np.max(np.abs(audio_ir_plano_recortado))
             ind_signal = np.where(np.abs(audio_ir_plano_recortado) > umbral)[0]
@@ -108,19 +169,41 @@ class ReverbAula(ctk.CTk):
                 self.audio_ir = audio_ir_recortado[:corte]
             else:
                 self.audio_ir = audio_ir_recortado
+        except Exception as e:
+            print(f"Error al cargar la IR: {e}")
 
-            self.lbl_estado_ir.configure(text = f'{self.ir_path.name} ({self.fs_ir} Hz)')
+    def preset_anterior(self):
+        if not self.presets:
+            return
+        nombres = list(self.presets.keys())
+        actual = self.lbl_nombre_preset.cget('text')
 
-    def generar_ir_error(self):
-        t = np.linspace(0, 2.0, int(self.fs * 2.0), False)
-        ruido = np.random.randn(len(t), 1)
-        envolvente = np.exp(-3 * t).reshape(-1, 1)
-        return ruido * envolvente
-    
+        ind_actual = nombres.index(actual) if actual in nombres else 0
+        ind_nuevo = (ind_actual - 1) % len(nombres)
+
+        self.cambiar_preset(nombres[ind_nuevo])
+
+    def preset_siguiente(self):
+        if not self.presets:
+            return
+        
+        nombres = list(self.presets.keys())
+        actual = self.lbl_nombre_preset.cget('text')
+
+        ind_actual = nombres.index(actual) if actual in nombres else 0
+        ind_nuevo = (ind_actual + 1) % len(nombres)
+
+        self.cambiar_preset(nombres[ind_nuevo])
+
     def start_processing_thread(self):
         if self.audio_dry is None:
             self.lbl_estado_audio.configure(text = '¡Cargue un archivo primero!')
+            return 
+        
+        if self.audio_ir is None:
+            print('¡No hay ninguna IR seleccionada en la carpeta!')
             return
+        
         self.btn_procesar.configure(state = 'disabled', text = 'Procesando...')
         threading.Thread(target = self.procesar_audio, daemon = True).start()
 
