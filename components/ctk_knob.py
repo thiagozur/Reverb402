@@ -2,7 +2,7 @@ import math
 import customtkinter as ctk
 
 class CTkKnob(ctk.CTkCanvas):
-    def __init__(self, master, from_ = 0.0, to = 1.0, value = 0.0, command = None, step = None, text = '', size = 70, fg_color = '#1f538d', **kwargs):
+    def __init__(self, master, from_ = 0.0, to = 1.0, step = None, value = 0.0, command = None, text = '', size = 70, fg_color = '#1f538d', **kwargs):
         super().__init__(master, width = size, height = size, bg ='#242424', highlightthickness = 0, **kwargs)
 
         self.from_ = from_
@@ -30,21 +30,27 @@ class CTkKnob(ctk.CTkCanvas):
         sens = 150.0
         parameter_range = self.to - self.from_
 
-        new_value = self.value + (delta_y * (parameter_range / sens))
-        new_value = max(self.from_, min(self.to, new_value))
+        true_new_value = self.value + (delta_y * (parameter_range / sens))
+        true_new_value = max(self.from_, min(self.to, true_new_value))
+
+        self.value = true_new_value 
 
         if self.step is not None:
-            new_value = self.from_ + round((new_value - self.from_) / self.step) * self.step
+            new_value = self.from_ + round((true_new_value - self.from_) / self.step) * self.step
             new_value = max(self.from_, min(self.to, new_value))
+        else:
+            new_value = true_new_value
 
-        if new_value != self.value:
-            self.value = new_value
-            self.update_knob()
+        if not hasattr(self, '_last_notified_value') or new_value != self._last_notified_value:
+            self._last_notified_value = new_value
 
+            self.update_knob_visuals(new_value)
             if self.command:
-                self.command(self.value)
+                self.command(new_value)
 
     def get(self):
+        if self.step is not None:
+            return self.from_ + round((self.value - self.from_) / self.step) * self.step
         return self.value
     
     def set(self, val):
@@ -52,19 +58,27 @@ class CTkKnob(ctk.CTkCanvas):
         self.update_knob()
 
     def update_knob(self):
+        if self.step is not None:
+            val = self.from_ + round((self.value - self.from_) / self.step) * self.step
+        else:
+            val = self.value
+        self._last_notified_value = val
+        self.update_knob_visuals(val)
+    
+    def update_knob_visuals(self, drawing_value):
         self.delete('all')
         cx = self.size / 2
         cy = self.size / 2
         r = (self.size / 2) - 8
 
-        percentage = (self.value - self.from_) / (self.to - self.from_)
+        percentage = (drawing_value - self.from_) / (self.to - self.from_)
         angle_deg = -135 + (percentage * 270)
         angle_rad = math.radians(angle_deg - 90)
 
         self.create_oval(cx - r, cy - r, cx + r, cy + r, fill = '#1a1a1a', outline = '#333333', width = 2)
 
         arc_angle_start = 225
-        extension = angle_deg - arc_angle_start
+        extension = -(percentage * 270)
 
         self.create_arc(cx - r + 3, cy - r + 3, cx + r -3, cy + r - 3, start = arc_angle_start, extent = extension, style = 'arc', outline = self.fg_color, width = 4)
 

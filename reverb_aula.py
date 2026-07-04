@@ -81,35 +81,48 @@ class ReverbAula(ctk.CTk):
         self.frame_parametros = ctk.CTkFrame(self)
         self.frame_parametros.pack(pady = 15, padx = 20, fill = 'x')
 
-        self.lbl_decay = ctk.CTkLabel(self.frame_parametros, text = 'Escalado de decay: 1.0')
-        self.lbl_decay.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_decay = ctk.CTkSlider(self.frame_parametros, from_ = 0.1, to = 5.0, number_of_steps = 49, command = self.actualizar_decay)
-        self.slider_decay.set(1.0)
-        self.slider_decay.pack(fill = 'x', padx = 15, pady = (0, 10))
+        self.frame_knobs = ctk.CTkFrame(self.frame_parametros, fg_color = 'transparent')
+        self.frame_knobs.pack(fill = 'x', padx = 18, pady = 15)
 
-        self.lbl_mix = ctk.CTkLabel(self.frame_parametros, text = 'Mix: 40%')
-        self.lbl_mix.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_mix = ctk.CTkSlider(self.frame_parametros, from_ = 0.0, to = 1.0, number_of_steps = 100, command = self.actualizar_mix)
-        self.slider_mix.set(self.mix_actual)
-        self.slider_mix.pack(fill = 'x', padx = 15, pady = (0, 10))
+        self.contenedor_decay = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
+        self.contenedor_decay.pack(side = 'left', expand = True, fill = 'both', padx = 5)
+        self.lbl_decay = ctk.CTkLabel(self.contenedor_decay, text = 'Decay\n1.0x', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.lbl_decay.pack(pady = (0, 2))
+        self.knob_decay = CTkKnob(self.contenedor_decay, from_ = 0.1, to = 5.0, step = 0.1, size = 70, command = self.actualizar_decay)
+        self.knob_decay.pack(pady = 5)
+        self.knob_decay.set(1.0)
 
-        self.lbl_predelay = ctk.CTkLabel(self.frame_parametros, text = 'Pre-delay: 0 ms')
-        self.lbl_predelay.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_predelay = ctk.CTkSlider(self.frame_parametros, from_ = 0, to = 150, command = self.actualizar_predelay)
-        self.slider_predelay.set(0)
-        self.slider_predelay.pack(fill = 'x', padx = 15, pady = (0, 10))
+        self.contenedor_predelay = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
+        self.contenedor_predelay.pack(side = 'left', expand = True, fill = 'both', padx = 5)
+        self.lbl_predelay = ctk.CTkLabel(self.contenedor_predelay, text = 'Pre-delay\n0 ms', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.lbl_predelay.pack(pady = (0, 2))
+        self.knob_predelay = CTkKnob(self.contenedor_predelay, from_ = 0, to = 150, step = 1, size = 70, command = self.actualizar_predelay)
+        self.knob_predelay.pack(pady = 5)
+        self.knob_predelay.set(0)
 
-        self.lbl_hpf = ctk.CTkLabel(self.frame_parametros, text = 'HPF: 20 Hz')
-        self.lbl_hpf.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_hpf = ctk.CTkSlider(self.frame_parametros, from_ = 20, to = 500, command = self.actualizar_filtros)
-        self.slider_hpf.pack(fill = 'x', padx = 15, pady=(0, 10))
-        self.slider_hpf.set(20)
+        self.contenedor_hpf = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
+        self.contenedor_hpf.pack(side = 'left', expand = True, fill = 'both', padx = 5)
+        self.lbl_hpf = ctk.CTkLabel(self.contenedor_hpf, text = 'Filtro High-Pass\n20 Hz', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.lbl_hpf.pack(pady = (0, 2))
+        self.knob_hpf = CTkKnob(self.contenedor_hpf, from_ = 20, to = 500, step = 1, size = 70, command = self.actualizar_filtros)
+        self.knob_hpf.pack(pady = 5)
+        self.knob_hpf.set(20)
 
-        self.lbl_lpf = ctk.CTkLabel(self.frame_parametros, text = 'LPF: 20 kHz')
-        self.lbl_lpf.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_lpf = ctk.CTkSlider(self.frame_parametros, from_ = 1000, to = 20000, command = self.actualizar_filtros)
-        self.slider_lpf.pack(fill = 'x', padx = 15, pady = (0, 10))
-        self.slider_lpf.set(20000)
+        self.contenedor_lpf = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
+        self.contenedor_lpf.pack(side = 'left', expand = True, fill = 'both', padx = 5)
+        self.lbl_lpf = ctk.CTkLabel(self.contenedor_lpf, text = 'Filtro Low-Pass\n20 kHz', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.lbl_lpf.pack(pady = (0, 2))
+        self.knob_lpf = CTkKnob(self.contenedor_lpf, from_ = 1000, to = 20000, step = 1, size = 70, command = self.actualizar_filtros)
+        self.knob_lpf.pack(pady = 5)
+        self.knob_lpf.set(20000)
+
+        self.contenedor_mix = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
+        self.contenedor_mix.pack(side = 'left', expand = True, fill = 'both', padx = 5)
+        self.lbl_mix = ctk.CTkLabel(self.contenedor_mix, text = 'Mix\n40%', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.lbl_mix.pack(pady = (0, 2))
+        self.knob_mix = CTkKnob(self.contenedor_mix, from_ = 0.0, to = 1.0, step = 0.01, size = 70, command = self.actualizar_mix)
+        self.knob_mix.pack(pady = 5)
+        self.knob_mix.set(0.4)
 
         self.frame_playback = ctk.CTkFrame(self, fg_color = 'transparent')
         self.frame_playback.pack(pady = 5)
@@ -134,11 +147,11 @@ class ReverbAula(ctk.CTk):
             self.playback_loop = False
 
     def actualizar_filtros(self, val):
-        freq_hpf = int(float(self.slider_hpf.get()))
-        freq_lpf = int(float(self.slider_lpf.get()))
+        freq_hpf = int(float(self.knob_hpf.get()))
+        freq_lpf = int(float(self.knob_lpf.get()))
 
-        self.lbl_hpf.configure(text = f'HPF: {int(freq_hpf)} Hz')
-        self.lbl_lpf.configure(text = f'LPF: {int(freq_lpf / 1000)} kHz')
+        self.lbl_hpf.configure(text = f'Filtro High-Pass\n{freq_hpf} Hz')
+        self.lbl_lpf.configure(text = f'Filtro Low-Pass\n{round(freq_lpf / 1000, 1)} kHz')
 
         if self.hilo_decay:
             return
@@ -160,7 +173,7 @@ class ReverbAula(ctk.CTk):
         hilo.start()
 
     def actualizar_decay(self, val):
-        self.lbl_decay.configure(text = f'Escalado de decay: {val:.2f}')
+        self.lbl_decay.configure(text = f'Decay\n{round(val, 1)}x')
         
         if self.hilo_decay:
             return
@@ -288,10 +301,14 @@ class ReverbAula(ctk.CTk):
         threading.Thread(target = self.procesar_audio, daemon = True).start()
 
     def procesar_audio(self):
+        if self.audio_dry is None:
+            self.hilo_decay_activo = False
+            return
+        
         dry = self.audio_dry
 
         ir = self.audio_ir if self.audio_ir is not None else self.generar_ir_error()
-        factor_decay = self.slider_decay.get()
+        factor_decay = self.knob_decay.get()
 
         duracion_real = len(ir) / self.fs_ir
         decay_seg = duracion_real * factor_decay
@@ -338,15 +355,15 @@ class ReverbAula(ctk.CTk):
 
         audio_wet = np.stack(canales_wet, axis = -1)
 
-        ms_predelay = int(self.slider_predelay.get())
+        ms_predelay = int(self.knob_predelay.get())
         muestras_delay = int((ms_predelay * self.fs) / 1000)
 
         if muestras_delay > 0:
             silencio = np.zeros((muestras_delay, n_canales))
             audio_wet = np.vstack([silencio, audio_wet])
 
-        freq_hpf = float(self.slider_hpf.get())
-        freq_lpf = float(self.slider_lpf.get())
+        freq_hpf = float(self.knob_hpf.get())
+        freq_lpf = float(self.knob_lpf.get())
         nyquist = self.fs / 2.0
 
         if freq_hpf > 20:
