@@ -4,8 +4,9 @@ import threading
 import numpy as np
 import customtkinter as ctk
 from tkinter import filedialog, Menu
+from components.ctk_knob import CTkKnob
 import soundfile as sf
-from scipy.signal import fftconvolve, resample
+from scipy.signal import fftconvolve, butter, sosfilt
 import sounddevice as sd
 
 ctk.set_appearance_mode('Dark')
@@ -15,7 +16,7 @@ class ReverbAula(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('Reverb en base IR del aula')
-        self.geometry('500x420')
+        self.geometry('800x550')
 
         self.audio_path = None
         self.ir_path = None
@@ -28,6 +29,7 @@ class ReverbAula(ctk.CTk):
         self.target_mix = 0.4
         self.suavizado = 0.8
         self.hilo_decay = False
+        self.playback_loop = False
 
         self.carpeta_ir = Path(__file__).parent / 'IR'
         self.presets = {}
@@ -81,15 +83,33 @@ class ReverbAula(ctk.CTk):
 
         self.lbl_decay = ctk.CTkLabel(self.frame_parametros, text = 'Escalado de decay: 1.0')
         self.lbl_decay.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_decay = ctk.CTkSlider(self.frame_parametros, from_ = 0.1, to = 5.0, number_of_steps = 49, command = self.actualizar_lbl_decay)
+        self.slider_decay = ctk.CTkSlider(self.frame_parametros, from_ = 0.1, to = 5.0, number_of_steps = 49, command = self.actualizar_decay)
         self.slider_decay.set(1.0)
         self.slider_decay.pack(fill = 'x', padx = 15, pady = (0, 10))
 
         self.lbl_mix = ctk.CTkLabel(self.frame_parametros, text = 'Mix: 40%')
         self.lbl_mix.pack(anchor = 'w', padx = 15, pady = (10, 0))
-        self.slider_mix = ctk.CTkSlider(self.frame_parametros, from_ = 0.0, to = 1.0, number_of_steps = 29, command = self.actualizar_lbl_mix)
+        self.slider_mix = ctk.CTkSlider(self.frame_parametros, from_ = 0.0, to = 1.0, number_of_steps = 100, command = self.actualizar_mix)
         self.slider_mix.set(self.mix_actual)
         self.slider_mix.pack(fill = 'x', padx = 15, pady = (0, 10))
+
+        self.lbl_predelay = ctk.CTkLabel(self.frame_parametros, text = 'Pre-delay: 0 ms')
+        self.lbl_predelay.pack(anchor = 'w', padx = 15, pady = (10, 0))
+        self.slider_predelay = ctk.CTkSlider(self.frame_parametros, from_ = 0, to = 150, command = self.actualizar_predelay)
+        self.slider_predelay.set(0)
+        self.slider_predelay.pack(fill = 'x', padx = 15, pady = (0, 10))
+
+        self.lbl_hpf = ctk.CTkLabel(self.frame_parametros, text = 'HPF: 20 Hz')
+        self.lbl_hpf.pack(anchor = 'w', padx = 15, pady = (10, 0))
+        self.slider_hpf = ctk.CTkSlider(self.frame_parametros, from_ = 20, to = 500, command = self.actualizar_filtros)
+        self.slider_hpf.pack(fill = 'x', padx = 15, pady=(0, 10))
+        self.slider_hpf.set(20)
+
+        self.lbl_lpf = ctk.CTkLabel(self.frame_parametros, text = 'LPF: 20 kHz')
+        self.lbl_lpf.pack(anchor = 'w', padx = 15, pady = (10, 0))
+        self.slider_lpf = ctk.CTkSlider(self.frame_parametros, from_ = 1000, to = 20000, command = self.actualizar_filtros)
+        self.slider_lpf.pack(fill = 'x', padx = 15, pady = (0, 10))
+        self.slider_lpf.set(20000)
 
         self.frame_playback = ctk.CTkFrame(self, fg_color = 'transparent')
         self.frame_playback.pack(pady = 5)
@@ -103,7 +123,43 @@ class ReverbAula(ctk.CTk):
         self.btn_guardar =ctk.CTkButton(self.frame_playback, text = 'Guardar audio procesado', state = 'disabled', command = self.guardar_audio)
         self.btn_guardar.grid(row = 0, column = 2, padx = 5)
 
-    def actualizar_lbl_decay(self, val):
+        self.switch_loop = ctk.CTkSwitch(self.frame_playback, text = 'Loop de preescucha', command = self.toggle_loop, progress_color = '#1f538d')
+        self.switch_loop.grid(row = 0, column = 4, padx = 5)
+
+    def toggle_loop(self):
+        val = self.switch_loop.get()
+        if val == 1:
+            self.playback_loop = True
+        else:
+            self.playback_loop = False
+
+    def actualizar_filtros(self, val):
+        freq_hpf = int(float(self.slider_hpf.get()))
+        freq_lpf = int(float(self.slider_lpf.get()))
+
+        self.lbl_hpf.configure(text = f'HPF: {int(freq_hpf)} Hz')
+        self.lbl_lpf.configure(text = f'LPF: {int(freq_lpf / 1000)} kHz')
+
+        if self.hilo_decay:
+            return
+
+        self.hilo_decay = True
+        hilo = threading.Thread(target = self.procesar_audio)
+        hilo.daemon = True
+        hilo.start()
+
+    def actualizar_predelay(self, val):
+        self.lbl_predelay.configure(text = f'Pre-delay: {int(float(val))} ms')      
+
+        if self.hilo_decay:
+            return
+        
+        self.hilo_decay = True
+        hilo = threading.Thread(target = self.procesar_audio)
+        hilo.daemon = True
+        hilo.start()
+
+    def actualizar_decay(self, val):
         self.lbl_decay.configure(text = f'Escalado de decay: {val:.2f}')
         
         if self.hilo_decay:
@@ -113,7 +169,7 @@ class ReverbAula(ctk.CTk):
         hilo = threading.Thread(target = self.procesar_audio, daemon = True)
         hilo.start()
     
-    def actualizar_lbl_mix(self, val):
+    def actualizar_mix(self, val):
         self.lbl_mix.configure(text = f'Mix: {int(val*100)}%')
 
         self.target_mix = val
@@ -282,6 +338,29 @@ class ReverbAula(ctk.CTk):
 
         audio_wet = np.stack(canales_wet, axis = -1)
 
+        ms_predelay = int(self.slider_predelay.get())
+        muestras_delay = int((ms_predelay * self.fs) / 1000)
+
+        if muestras_delay > 0:
+            silencio = np.zeros((muestras_delay, n_canales))
+            audio_wet = np.vstack([silencio, audio_wet])
+
+        freq_hpf = float(self.slider_hpf.get())
+        freq_lpf = float(self.slider_lpf.get())
+        nyquist = self.fs / 2.0
+
+        if freq_hpf > 20:
+            sos_hp = butter(2, freq_hpf / nyquist, btype = 'highpass', output = 'sos')
+
+            for canal in range(n_canales):
+                audio_wet[:, canal] = sosfilt(sos_hp, audio_wet[:, canal])
+
+        if freq_lpf < 20000:
+            sos_lp = butter(2, freq_lpf / nyquist, btype = 'lowpass', output = 'sos')
+            
+            for canal in range(n_canales):
+                audio_wet[:, canal] = sosfilt(sos_lp, audio_wet[:, canal])
+
         pad_len = len(audio_wet) - len(dry)
         dry_padded = np.pad(dry, ((0, pad_len), (0, 0)), mode = 'constant')[:len(audio_wet), :n_canales]
 
@@ -305,7 +384,10 @@ class ReverbAula(ctk.CTk):
 
         if hasattr(self, 'reproduciendo') and self.reproduciendo:
             if self.frame_actual >= len(self.audio_process):
-                self.frame_actual = len(self.audio_process) - 1
+                if self.playback_loop:
+                    self.frame_actual = 0
+                else:
+                    self.frame_actual = len(self.audio_process) - 1
 
     def iniciar_stream(self):
         if not hasattr(self, 'audio_process') or self.audio_process is None:
@@ -327,8 +409,11 @@ class ReverbAula(ctk.CTk):
                 print(status)
 
             if self.frame_actual >= len(self.audio_process):
-                outdata[:frames] = 0
-                raise sd.CallbackStop()
+                if self.playback_loop and self.reproduciendo:
+                    self.frame_actual = 0
+                else:
+                    outdata[:frames] = 0
+                    raise sd.CallbackStop()
 
             chunk_size = min(len(self.audio_process) - self.frame_actual, frames) 
         
@@ -351,9 +436,27 @@ class ReverbAula(ctk.CTk):
                     outdata[:chunk_size] = bloque_final
 
                 if chunk_size < frames:
-                    outdata[chunk_size:] = 0
+                    if self.playback_loop and self.reproduciendo:
+                        frames_faltantes = frames - chunk_size
+                        self.frame_actual = 0
 
-                self.frame_actual += chunk_size
+                        bloque_dry_nuevo = self.audio_dry_padded[:frames_faltantes]
+                        bloque_wet_nuevo = self.audio_process[:frames_faltantes]
+
+                        bloque_final_nuevo = (ganancia_dry * bloque_dry_nuevo) + (ganancia_wet * bloque_wet_nuevo)
+                        bloque_final_nuevo = np.clip(bloque_final_nuevo, -1.0, 1.0)
+
+                        if canales == 1 and bloque_final_nuevo.ndim == 1:
+                            outdata[chunk_size:, 0] = bloque_final_nuevo
+                        else:
+                            outdata[chunk_size:] = bloque_final_nuevo
+
+                        self.frame_actual += frames_faltantes
+                    else:
+                        outdata[chunk_size:] = 0
+                        self.frame_actual += chunk_size
+                else:
+                    self.frame_actual += chunk_size
             else:
                 outdata[:frames] = 0
                 raise sd.CallbackStop()
