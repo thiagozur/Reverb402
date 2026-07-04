@@ -4,7 +4,8 @@ import threading
 import numpy as np
 import customtkinter as ctk
 from tkinter import filedialog, Menu
-from components.ctk_knob import CTkKnob
+from modules.ctk_knob import CTkKnob
+import modules.motor_audio as dsp
 import soundfile as sf
 from scipy.signal import fftconvolve, butter, sosfilt
 import sounddevice as sd
@@ -305,92 +306,25 @@ class ReverbAula(ctk.CTk):
             self.hilo_decay_activo = False
             return
         
-        dry = self.audio_dry
+        try:
+            dry_padded, audio_wet = dsp.procesar_convolucion_completa(
+                dry = self.audio_dry,
+                ir = self.audio_ir,
+                factor_decay = self.knob_decay.get(),
+                fs_ir = self.fs_ir,
+                fs_audio = self.fs,
+                ms_predelay = self.knob_predelay.get(),
+                freq_hpf = self.knob_hpf.get(),
+                freq_lpf = self.knob_lpf.get()
+            )
 
-        ir = self.audio_ir if self.audio_ir is not None else self.generar_ir_error()
-        factor_decay = self.knob_decay.get()
+            self.audio_dry_padded = dry_padded
+            self.audio_process = audio_wet
 
-        duracion_real = len(ir) / self.fs_ir
-        decay_seg = duracion_real * factor_decay
-
-        t = np.arange(len(ir)) / self.fs_ir
-
-        if factor_decay <= 1:
-            if factor_decay == 1:
-                ir_modificada = ir.copy()
-            else:
-                envolvente = np.exp(- (5.0 / decay_seg) * t).reshape(-1, 1)
-                ir_modificada = ir * envolvente
-        else:
-            muestras_ataque = int(0.060 * self.fs_ir)
-            
-            ataque = ir[:muestras_ataque].copy()
-            cola = ir[muestras_ataque:].copy()
-            
-            muestras_cola = len(cola)
-            muestras_cola_nuevas = int(muestras_cola * factor_decay)
-            
-            ind = np.linspace(0, muestras_cola - 1, muestras_cola)
-            ind_nuevos = np.linspace(0, muestras_cola - 1, muestras_cola_nuevas)
-            
-            n_canales_ir = ir.shape[1]
-            cola_estirada = np.zeros((muestras_cola_nuevas, n_canales_ir))
-            
-            for canal in range(n_canales_ir):
-                cola_estirada[:, canal] = np.interp(ind_nuevos, ind, cola[:, canal])
-            
-            muestras_fade = int(0.040 * self.fs_ir)
-            if muestras_fade < muestras_cola_nuevas:
-                rampa_subida = np.linspace(0.0, 1.0, muestras_fade).reshape(-1, 1)
-                cola_estirada[:muestras_fade] *= rampa_subida
-            
-            ir_modificada = np.vstack([ataque, cola_estirada])
-
-        canales_wet = []
-        n_canales = min(dry.shape[1], ir_modificada.shape[1])
-
-        for c in range(n_canales):
-            canal_conv = fftconvolve(dry[:, c], ir_modificada[:, c], mode = 'full')
-            canales_wet.append(canal_conv)
-
-        audio_wet = np.stack(canales_wet, axis = -1)
-
-        ms_predelay = int(self.knob_predelay.get())
-        muestras_delay = int((ms_predelay * self.fs) / 1000)
-
-        if muestras_delay > 0:
-            silencio = np.zeros((muestras_delay, n_canales))
-            audio_wet = np.vstack([silencio, audio_wet])
-
-        freq_hpf = float(self.knob_hpf.get())
-        freq_lpf = float(self.knob_lpf.get())
-        nyquist = self.fs / 2.0
-
-        if freq_hpf > 20:
-            sos_hp = butter(2, freq_hpf / nyquist, btype = 'highpass', output = 'sos')
-
-            for canal in range(n_canales):
-                audio_wet[:, canal] = sosfilt(sos_hp, audio_wet[:, canal])
-
-        if freq_lpf < 20000:
-            sos_lp = butter(2, freq_lpf / nyquist, btype = 'lowpass', output = 'sos')
-            
-            for canal in range(n_canales):
-                audio_wet[:, canal] = sosfilt(sos_lp, audio_wet[:, canal])
-
-        pad_len = len(audio_wet) - len(dry)
-        dry_padded = np.pad(dry, ((0, pad_len), (0, 0)), mode = 'constant')[:len(audio_wet), :n_canales]
-
-        rms_dry = np.sqrt(np.mean(dry_padded**2))
-        rms_wet = np.sqrt(np.mean(audio_wet**2))
-        
-        if rms_wet > 0 and rms_dry > 0:
-            audio_wet = audio_wet * (rms_dry / rms_wet) * 0.4
-
-        self.audio_dry_padded = dry_padded
-        self.audio_process = audio_wet
-
-        self.after(0, self.procesado_terminado)
+            self.after(0, self.procesado_terminado)
+        except Exception as e:
+            print(e)
+            self.hilo_decay = False
     
     def procesado_terminado(self):
         self.btn_preview.configure(state = 'normal')
