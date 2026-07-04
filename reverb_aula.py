@@ -47,6 +47,7 @@ class ReverbAula(ctk.CTk):
         self.ir_modificada = None
 
         self.carpeta_ir = Path(__file__).parent / 'IR'
+        self.carpeta_ir_stereo = self.carpeta_ir / 'stereo'
         self.presets = {}
         self.escanear_presets()
 
@@ -80,9 +81,22 @@ class ReverbAula(ctk.CTk):
             self.carpeta_ir.mkdir(parents = True, exist_ok = True)
             return
         
+        if not self.carpeta_ir_stereo.exists():
+            self.carpeta_ir_stereo.mkdir(parents = True, exist_ok = True)
+            return
+
         archivos_wav = sorted(self.carpeta_ir.glob('*.[wW][aA][vV]'))
 
+        wide_tuples = list(zip(archivos_wav[::2], archivos_wav[1::2]))
+        dsp.preparar_ir(self, make_wides = wide_tuples)
+
+        archivos_wide = sorted(self.carpeta_ir_stereo.glob('*.[wW][aA][vV]'))
+
         for ruta in archivos_wav:
+            nombre = ruta.stem.replace('_', ' ').title()
+            self.presets[nombre] = ruta
+        
+        for ruta in archivos_wide:
             nombre = ruta.stem.replace('_', ' ').title()
             self.presets[nombre] = ruta
 
@@ -335,36 +349,15 @@ class ReverbAula(ctk.CTk):
             menu_contextual.add_command(label = nombre, command = lambda name = nombre: self.cambiar_preset(name))
 
         menu_contextual.tk_popup(event.x_root, event.y_root)
-    
+
     def cambiar_preset(self, preset):
         if preset not in self.presets:
             return
         
         self.lbl_nombre_preset.configure(text = preset)
 
-        ruta_ir = self.presets[preset]
         try:
-            audio_ir_raw, self.fs_ir = sf.read(ruta_ir, always_2d = True)
-
-            audio_ir_plano = np.squeeze(audio_ir_raw)
-            if audio_ir_plano.ndim > 1:
-                audio_ir_plano = audio_ir_plano[:, 0]
-            
-            ind_pico = np.argmax(np.abs(audio_ir_plano))
-            audio_ir_recortado = audio_ir_raw[ind_pico:]
-            audio_ir_plano_recortado = audio_ir_plano[ind_pico:]
-
-            umbral = 0.01 * np.max(np.abs(audio_ir_plano_recortado))
-            ind_signal = np.where(np.abs(audio_ir_plano_recortado) > umbral)[0]
-
-            if len(ind_signal) > 0:
-                ultimo_ind = ind_signal[-1]
-                margen = int(0.2 * self.fs_ir)
-                corte = min(ultimo_ind + margen, len(audio_ir_recortado))
-                self.audio_ir = audio_ir_recortado[:corte]
-            else:
-                self.audio_ir = audio_ir_recortado
-
+            self.audio_ir, self.fs_ir = dsp.preparar_ir(self, preset = preset)
             self.disparar_procesamiento()
         except Exception as e:
             print(f'Error al cargar la IR: {e}')

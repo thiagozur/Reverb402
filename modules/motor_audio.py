@@ -1,5 +1,7 @@
 import numpy as np
 from scipy.signal import fftconvolve, butter, sosfilt
+import soundfile as sf
+from pathlib import Path
 
 def modificar_decay_ir(ir, factor_decay, fs_ir):
     duracion_real = len(ir) / fs_ir
@@ -71,3 +73,119 @@ def procesar_convolucion_completa(dry, ir, factor_decay, fs_ir, fs_audio, ms_pre
         audio_wet = audio_wet * (rms_dry / rms_wet) * 0.4
 
     return dry_padded, audio_wet, ir_modificada
+
+def preparar_ir(self, preset = None, make_wides = None):
+        if make_wides is not None and len(make_wides) > 0:
+            preset_num = len(make_wides) * 2 + 1
+            for par in make_wides:
+                ruta_ir_L, ruta_ir_R = par[0], par[1]
+
+                ruta_base = Path(ruta_ir_L)
+                destino = ruta_base.parent / 'stereo'
+                nombre = f'{preset_num}_-_{ruta_base.stem.split("_")[2]}_wide.wav'
+                ruta_salida = destino / nombre
+
+                if ruta_salida.exists():
+                    print(f'Esta IR ya existe (omitiendo {nombre})')
+                    preset_num += 1
+                    continue
+
+                try:
+                    ir_L_raw, fs_ir_L = sf.read(ruta_ir_L, always_2d = True)
+                    ir_L_plano = np.squeeze(ir_L_raw)
+
+                    ir_R_raw, fs_ir_R = sf.read(ruta_ir_R, always_2d = True)
+                    ir_R_plano = np.squeeze(ir_R_raw)
+
+                    if fs_ir_L != fs_ir_R:
+                        raise Exception('Las frecuencias de muestreo de los canales no son iguales')
+                    else:
+                        fs_ir_stereo = fs_ir_L
+                    
+                    if ir_L_plano.ndim > 1:
+                        ir_L_plano = ir_L_plano[:, 0]
+
+                    if ir_R_plano.ndim > 1:
+                        ir_R_plano = ir_R_plano[:, 0]
+
+                    ind_pico_L = np.argmax(np.abs(ir_L_plano))
+                    ir_L_recortado = ir_L_raw[ind_pico_L:]
+                    ir_L_plano_recortado = ir_L_plano[ind_pico_L:]
+
+                    ind_pico_R = np.argmax(np.abs(ir_R_plano))
+                    ir_R_recortado = ir_R_raw[ind_pico_R:]
+                    ir_R_plano_recortado = ir_R_plano[ind_pico_R:]
+
+                    umbral_L = 0.01 * np.max(np.abs(ir_L_plano_recortado))
+                    ind_signal_L = np.where(np.abs(ir_L_plano_recortado) > umbral_L)[0]
+
+                    umbral_R = 0.01 * np.max(np.abs(ir_R_plano_recortado))
+                    ind_signal_R = np.where(np.abs(ir_R_plano_recortado) > umbral_R)[0]
+
+                    if len(ind_signal_L) > 0:
+                        ultimo_ind_L = ind_signal_L[-1]
+                        margen_L = int(0.2 * fs_ir_stereo)
+                        corte_L = min(ultimo_ind_L + margen_L, len(ir_L_recortado))
+                        ir_L = ir_L_recortado[:corte_L]
+                    else:
+                        ir_L = ir_L_recortado
+
+                    if len(ind_signal_R) > 0:
+                        ultimo_ind_R = ind_signal_R[-1]
+                        margen_R = int(0.2 * fs_ir_stereo)
+                        corte_R = min(ultimo_ind_R + margen_R, len(ir_R_recortado))
+                        ir_R = ir_R_recortado[:corte_R]
+                    else:
+                        ir_R = ir_R_recortado
+
+                    ir_L_final = ir_L.flatten().astype(np.float32)
+                    ir_R_final = ir_R.flatten().astype(np.float32)
+
+                    len_ir_L = len(ir_L_final)
+                    len_ir_R = len(ir_R_final)
+                    max_len = max(len_ir_L, len_ir_R)
+
+                    if len_ir_L < max_len:
+                        ir_L_final = np.pad(ir_L_final, (0, max_len - len_ir_L), mode = 'constant')
+                    if len_ir_R < max_len:
+                        ir_R_final = np.pad(ir_R_final, (0, max_len - len_ir_R), mode = 'constant')
+
+                    ir = np.column_stack((ir_L_final, ir_R_final))
+
+                    preset_num += 1
+
+                    sf.write(ruta_salida, ir, fs_ir_stereo, format = 'WAV', subtype = 'PCM_24')
+
+                except Exception as e:
+                    print(e)
+                
+            return
+                
+        ruta_ir = self.presets[preset]
+
+        try:
+            audio_ir_raw, fs_ir = sf.read(ruta_ir, always_2d = True)
+
+            audio_ir_plano = np.squeeze(audio_ir_raw)
+
+            if audio_ir_plano.ndim > 1:
+                audio_ir_plano = audio_ir_plano[:, 0]
+            
+            ind_pico = np.argmax(np.abs(audio_ir_plano))
+            audio_ir_recortado = audio_ir_raw[ind_pico:]
+            audio_ir_plano_recortado = audio_ir_plano[ind_pico:]
+
+            umbral = 0.01 * np.max(np.abs(audio_ir_plano_recortado))
+            ind_signal = np.where(np.abs(audio_ir_plano_recortado) > umbral)[0]
+
+            if len(ind_signal) > 0:
+                ultimo_ind = ind_signal[-1]
+                margen = int(0.2 * fs_ir)
+                corte = min(ultimo_ind + margen, len(audio_ir_recortado))
+                audio_ir = audio_ir_recortado[:corte]
+            else:
+                audio_ir = audio_ir_recortado
+
+            return audio_ir, fs_ir
+        except Exception as e:
+            print(e)
