@@ -7,8 +7,11 @@ from tkinter import filedialog, Menu
 from modules.ctk_knob import CTkKnob
 import modules.motor_audio as dsp
 import soundfile as sf
-from scipy.signal import fftconvolve, butter, sosfilt
 import sounddevice as sd
+import time
+import matplotlib.pyplot as plt
+import seaborn as sns
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 ctk.set_appearance_mode('Dark')
 ctk.set_default_color_theme('blue')
@@ -17,20 +20,31 @@ class ReverbAula(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title('Reverb en base IR del aula')
-        self.geometry('800x550')
+
+        ancho = 1000
+        alto = 850
+        ancho_pantalla = self.winfo_screenwidth()
+        alto_pantalla = self.winfo_screenheight()
+
+        x = int((ancho_pantalla / 2) - (ancho / 2))
+        y = int((alto_pantalla / 2) - (alto / 2))
+
+        self.geometry(f'{ancho}x{alto}+{x}+{y}')
 
         self.audio_path = None
         self.ir_path = None
         self.audio_dry = None
         self.audio_ir = None
         self.audio_process = None
-        self.fs = 44100
-        self.fs_ir = 44100
+        self.fs = 48000
+        self.fs_ir = 48000
         self.mix_actual = 0.4
         self.target_mix = 0.4
         self.suavizado = 0.8
         self.hilo_decay = False
         self.playback_loop = False
+        self._ultimo_tiempo_grafico = 0.0
+        self.ir_modificada = None
 
         self.carpeta_ir = Path(__file__).parent / 'IR'
         self.presets = {}
@@ -44,6 +58,22 @@ class ReverbAula(ctk.CTk):
             self.lbl_nombre_preset.configure(text = 'No se encontraron IRs')
             self.btn_prev_preset.configure(state = 'disabled')
             self.btn_next_preset.configure(state = 'disabled')
+
+        self.protocol("WM_DELETE_WINDOW", self.onclose)
+
+    def onclose(self):
+        for alarm in self.tk.eval('after info').split():
+            try:
+                self.after_cancel(alarm)
+            except Exception:
+                pass
+
+            try:
+                plt.close('all')
+            except Exception:
+                pass
+        
+        self.destroy()
 
     def escanear_presets(self):
         if not self.carpeta_ir.exists():
@@ -85,61 +115,131 @@ class ReverbAula(ctk.CTk):
         self.frame_knobs = ctk.CTkFrame(self.frame_parametros, fg_color = 'transparent')
         self.frame_knobs.pack(fill = 'x', padx = 18, pady = 15)
 
-        self.contenedor_decay = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
-        self.contenedor_decay.pack(side = 'left', expand = True, fill = 'both', padx = 5)
-        self.lbl_decay = ctk.CTkLabel(self.contenedor_decay, text = 'Decay\n1.0x', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.contenedor_decay = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent', width = 120)
+        self.contenedor_decay.pack(side = 'left', fill = 'both', expand = True, padx = 10, pady = 10)
+        self.lbl_decay = ctk.CTkLabel(self.contenedor_decay, text = 'Decay\n1.0x', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center', width = 120)
         self.lbl_decay.pack(pady = (0, 2))
         self.knob_decay = CTkKnob(self.contenedor_decay, from_ = 0.1, to = 5.0, step = 0.1, size = 70, command = self.actualizar_decay)
         self.knob_decay.pack(pady = 5)
         self.knob_decay.set(1.0)
 
-        self.contenedor_predelay = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
-        self.contenedor_predelay.pack(side = 'left', expand = True, fill = 'both', padx = 5)
-        self.lbl_predelay = ctk.CTkLabel(self.contenedor_predelay, text = 'Pre-delay\n0 ms', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.contenedor_predelay = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent', width = 120)
+        self.contenedor_predelay.pack(side = 'left', fill = 'both', expand = True, padx = 10, pady = 10)
+        self.lbl_predelay = ctk.CTkLabel(self.contenedor_predelay, text = 'Pre-delay\n0 ms', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center', width = 120)
         self.lbl_predelay.pack(pady = (0, 2))
         self.knob_predelay = CTkKnob(self.contenedor_predelay, from_ = 0, to = 150, step = 1, size = 70, command = self.actualizar_predelay)
         self.knob_predelay.pack(pady = 5)
         self.knob_predelay.set(0)
 
-        self.contenedor_hpf = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
-        self.contenedor_hpf.pack(side = 'left', expand = True, fill = 'both', padx = 5)
-        self.lbl_hpf = ctk.CTkLabel(self.contenedor_hpf, text = 'Filtro High-Pass\n20 Hz', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.contenedor_hpf = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent', width = 120)
+        self.contenedor_hpf.pack(side = 'left', fill = 'both', expand = True, padx = 10, pady = 10)
+        self.lbl_hpf = ctk.CTkLabel(self.contenedor_hpf, text = 'Filtro High-Pass\n20 Hz', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center', width = 120)
         self.lbl_hpf.pack(pady = (0, 2))
         self.knob_hpf = CTkKnob(self.contenedor_hpf, from_ = 20, to = 500, step = 1, size = 70, command = self.actualizar_filtros)
         self.knob_hpf.pack(pady = 5)
         self.knob_hpf.set(20)
 
-        self.contenedor_lpf = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
-        self.contenedor_lpf.pack(side = 'left', expand = True, fill = 'both', padx = 5)
-        self.lbl_lpf = ctk.CTkLabel(self.contenedor_lpf, text = 'Filtro Low-Pass\n20 kHz', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.contenedor_lpf = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent', width = 120)
+        self.contenedor_lpf.pack(side = 'left', fill = 'both', expand = True, padx = 10, pady = 10)
+        self.lbl_lpf = ctk.CTkLabel(self.contenedor_lpf, text = 'Filtro Low-Pass\n20 kHz', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center', width = 120)
         self.lbl_lpf.pack(pady = (0, 2))
         self.knob_lpf = CTkKnob(self.contenedor_lpf, from_ = 1000, to = 20000, step = 1, size = 70, command = self.actualizar_filtros)
         self.knob_lpf.pack(pady = 5)
         self.knob_lpf.set(20000)
 
-        self.contenedor_mix = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent')
-        self.contenedor_mix.pack(side = 'left', expand = True, fill = 'both', padx = 5)
-        self.lbl_mix = ctk.CTkLabel(self.contenedor_mix, text = 'Mix\n40%', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center')
+        self.contenedor_mix = ctk.CTkFrame(self.frame_knobs, fg_color = 'transparent', width = 120)
+        self.contenedor_mix.pack(side = 'left', fill = 'both', expand = True, padx = 10, pady = 10)
+        self.lbl_mix = ctk.CTkLabel(self.contenedor_mix, text = 'Mix\n40%', font = ctk.CTkFont(size = 11, weight = 'bold'), anchor = 'center', width = 120)
         self.lbl_mix.pack(pady = (0, 2))
         self.knob_mix = CTkKnob(self.contenedor_mix, from_ = 0.0, to = 1.0, step = 0.01, size = 70, command = self.actualizar_mix)
         self.knob_mix.pack(pady = 5)
         self.knob_mix.set(0.4)
 
-        self.frame_playback = ctk.CTkFrame(self, fg_color = 'transparent')
-        self.frame_playback.pack(pady = 5)
+        self.frame_playback = ctk.CTkFrame(self, fg_color = 'transparent', height = 60)
+        self.frame_playback.pack(fill = 'x', side = 'bottom', padx = 15, pady = 10)
+        self.frame_playback.pack_propagate(False)
 
         self.btn_preview = ctk.CTkButton(self.frame_playback, text = 'Preescucha', state = 'disabled', command = self.iniciar_stream)
-        self.btn_preview.grid(row = 0, column = 0, padx = 5)
+        self.btn_preview.pack(side = 'left', fill = 'none', expand = True, padx = 20)
 
         self.btn_parar = ctk.CTkButton(self.frame_playback, text = 'Detener reproducción', state = 'disabled', command = self.detener_stream, width = 60, fg_color = 'crimson', hover_color = 'darkred')
-        self.btn_parar.grid(row = 0, column = 1, padx = 5)
+        self.btn_parar.pack(side = 'left', fill = 'none', expand = True, padx = 20)
         
         self.btn_guardar =ctk.CTkButton(self.frame_playback, text = 'Guardar audio procesado', state = 'disabled', command = self.guardar_audio)
-        self.btn_guardar.grid(row = 0, column = 2, padx = 5)
+        self.btn_guardar.pack(side = 'left', fill = 'none', expand = True, padx = 20)
 
         self.switch_loop = ctk.CTkSwitch(self.frame_playback, text = 'Loop de preescucha', command = self.toggle_loop, progress_color = '#1f538d')
-        self.switch_loop.grid(row = 0, column = 4, padx = 5)
+        self.switch_loop.pack(side = 'left', fill = 'none', expand = True, padx = 20)
 
+        self.frame_visualizador = ctk.CTkFrame(self, width = 550, height = 350, fg_color = '#1a1a1a', corner_radius = 10)
+        self.frame_visualizador.pack_propagate(False)
+        self.frame_visualizador.pack(fill = 'both', expand = True, padx = 15, pady = 15)
+
+        sns.set_theme(style = 'darkgrid', rc = {
+            'axes.facecolor': '#1a1a1a',
+            'figure.facecolor': '#1a1a1a',
+            'grid.color': '#2d2d2d',
+            'axes.edgecolor': '#2d2d2d',
+            'text.color': '#ffffff',
+            'xtick.color': '#888888',
+            'ytick.color': '#888888'
+        })
+        self.fig, self.ax = plt.subplots(figsize = (5, 2.5), facecolor = '#1a1a1a')
+
+        self.ax.tick_params(colors = '#888888', labelsize = 9)
+        self.ax.grid(True, color = '#333333', linestyle = '--', linewidth = 0.5)
+        self.ax.set_title('Respuesta al impulso (modificada)', color = '#ffffff', fontsize = 10, pad = 10)
+        self.ax.set_xlabel('Tiempo (s)', color = '#888888', fontsize = 9)
+        self.ax.set_ylabel('Amplitud', color = '#888888', fontsize = 9)
+
+        for spine in self.ax.spines.values():
+            spine.set_color('#333333')
+
+        self.canvas_grafico = FigureCanvasTkAgg(self.fig, master = self.frame_visualizador)
+        self.widget_grafico = self.canvas_grafico.get_tk_widget()
+        self.widget_grafico.pack(fill = 'both', expand = True, padx = 10, pady = 10)
+
+        self.fig.tight_layout()
+
+    def actualizar_grafico(self, ir_modificada):
+        tiempo_actual = time.time()
+        if tiempo_actual - self._ultimo_tiempo_grafico < 0.06:
+            return
+        self._ultimo_tiempo_grafico = tiempo_actual
+
+        self.ax.clear()    
+
+        for spine in self.ax.spines.values():
+            spine.set_color('#333333')
+
+        if ir_modificada is not None and len(ir_modificada) > 0:
+            if len(ir_modificada.shape) > 1:
+                y = ir_modificada[:, 0]
+            else:
+                y = ir_modificada
+
+            fs_ir = getattr(self, 'fs_ir', 48000)
+            
+            step = max(1, len(y) // 1500)
+            downsample_y = y[::step]
+            downsample_x = (np.arange(len(y)) / fs_ir)[::step]
+
+            self.ax.plot(downsample_x, downsample_y, color = '#1f538d', linewidth = 1, alpha = 0.9)
+            self.ax.fill_between(downsample_x, downsample_y, color = '#1f538d', alpha = 0.15)
+            
+            max_amp = np.max(np.abs(y)) if np.max(np.abs(y)) > 0 else 1.0
+            self.ax.set_ylim(-max_amp * 1.1, max_amp * 1.1)
+            self.ax.set_xlim(0, downsample_x[-1])
+        
+        self.ax.set_title('Respuesta al impulso (modificada)', color = '#ffffff', fontsize = 10, pad = 10)
+        self.ax.set_xlabel('Tiempo (s)', color = '#888888', fontsize = 9)
+        self.ax.set_ylabel('Amplitud', color = '#888888', fontsize = 9)
+
+        try:
+            self.canvas_grafico.draw()
+        except Exception:
+            pass
+    
     def toggle_loop(self):
         val = self.switch_loop.get()
         if val == 1:
@@ -152,7 +252,7 @@ class ReverbAula(ctk.CTk):
         freq_lpf = int(float(self.knob_lpf.get()))
 
         self.lbl_hpf.configure(text = f'Filtro High-Pass\n{freq_hpf} Hz')
-        self.lbl_lpf.configure(text = f'Filtro Low-Pass\n{round(freq_lpf / 1000, 1)} kHz')
+        self.lbl_lpf.configure(text = f'Filtro Low-Pass\n{round(freq_lpf / 1000) if float(freq_lpf / 1000).is_integer() else round(freq_lpf / 1000, 1)} kHz')
 
         if self.hilo_decay:
             return
@@ -163,7 +263,7 @@ class ReverbAula(ctk.CTk):
         hilo.start()
 
     def actualizar_predelay(self, val):
-        self.lbl_predelay.configure(text = f'Pre-delay: {int(float(val))} ms')      
+        self.lbl_predelay.configure(text = f'Pre-delay\n{int(float(val))} ms')      
 
         if self.hilo_decay:
             return
@@ -184,7 +284,7 @@ class ReverbAula(ctk.CTk):
         hilo.start()
     
     def actualizar_mix(self, val):
-        self.lbl_mix.configure(text = f'Mix: {int(val*100)}%')
+        self.lbl_mix.configure(text = f'Mix\n{int(val*100)}%')
 
         self.target_mix = val
 
@@ -193,6 +293,9 @@ class ReverbAula(ctk.CTk):
             return
         
         if not hasattr(self, 'audio_dry') or self.audio_dry is None:
+            return
+        
+        if self.hilo_decay:
             return
         
         threading.Thread(target = self.procesar_audio, daemon = True).start()
@@ -303,11 +406,11 @@ class ReverbAula(ctk.CTk):
 
     def procesar_audio(self):
         if self.audio_dry is None:
-            self.hilo_decay_activo = False
+            self.hilo_decay = False
             return
         
         try:
-            dry_padded, audio_wet = dsp.procesar_convolucion_completa(
+            dry_padded, audio_wet, ir_modificada = dsp.procesar_convolucion_completa(
                 dry = self.audio_dry,
                 ir = self.audio_ir,
                 factor_decay = self.knob_decay.get(),
@@ -318,6 +421,7 @@ class ReverbAula(ctk.CTk):
                 freq_lpf = self.knob_lpf.get()
             )
 
+            self.ir_modificada = ir_modificada
             self.audio_dry_padded = dry_padded
             self.audio_process = audio_wet
 
@@ -327,11 +431,16 @@ class ReverbAula(ctk.CTk):
             self.hilo_decay = False
     
     def procesado_terminado(self):
-        self.btn_preview.configure(state = 'normal')
-        self.btn_parar.configure(state = 'normal')
-        self.btn_guardar.configure(state = 'normal')
+        if self.btn_preview.cget('state') != 'normal':
+            self.btn_preview.configure(state = 'normal')
+        
+        if self.btn_parar.cget('state') != 'normal':
+            self.btn_parar.configure(state = 'normal')
 
-        self.hilo_decay = False
+        if self.btn_guardar.cget('state') != 'normal':
+            self.btn_guardar.configure(state = 'normal')
+
+        self.actualizar_grafico(self.ir_modificada)
 
         if hasattr(self, 'reproduciendo') and self.reproduciendo:
             if self.frame_actual >= len(self.audio_process):
@@ -339,6 +448,8 @@ class ReverbAula(ctk.CTk):
                     self.frame_actual = 0
                 else:
                     self.frame_actual = len(self.audio_process) - 1
+
+        self.hilo_decay = False
 
     def iniciar_stream(self):
         if not hasattr(self, 'audio_process') or self.audio_process is None:
