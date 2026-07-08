@@ -22,15 +22,13 @@ class Reverb402(ctk.CTk):
         self.title('Reverb402')
 
         ancho = 1000
-        alto = 880
+        alto = 860
+        s_app = (ancho, alto)
         ancho_pantalla = self.winfo_screenwidth()
         alto_pantalla = self.winfo_screenheight()
+        s_pantalla = (ancho_pantalla, alto_pantalla)
 
-        x = int((ancho_pantalla / 2) - (ancho / 2))
-        y = int((alto_pantalla / 2) - (alto / 2))
-
-        self.geometry(f'{ancho}x{alto}+{x}+{y}')
-        self.resizable(False, False)
+        self.maxsize(ancho, alto)
 
         self.audio_path = None
         self.ir_path = None
@@ -57,7 +55,7 @@ class Reverb402(ctk.CTk):
         self.presets = {}
         self.escanear_presets()
 
-        self.inicializar_ui()
+        self.inicializar_ui(s_app, s_pantalla)
 
         if self.presets:
             self.cambiar_preset(list(self.presets.keys())[0])
@@ -116,8 +114,34 @@ class Reverb402(ctk.CTk):
             self.presets[nombre] = ruta
             count +=1
 
-    def inicializar_ui(self):
-        self.frame_preset = ctk.CTkFrame(self)
+    def inicializar_ui(self, s_app, s_pantalla):
+        self.grid_columnconfigure(0, weight = 1)
+        self.grid_rowconfigure(0, weight = 1)
+
+        if (s_pantalla[1] - 120) <= s_app[1]:
+            diferencia_alto = s_app[1] - (s_pantalla[1] - 120)
+            nuevo_alto = s_app[1] - diferencia_alto
+
+            x = int((s_pantalla[0] / 2) - (s_app[0] / 2))
+            y = int((s_pantalla[1] / 2) - (nuevo_alto / 2))
+            self.geometry(f'{s_app[0]}x{nuevo_alto}+{x}+{y}')
+            self.resizable(False, True)
+
+            self.frame_principal = ctk.CTkScrollableFrame(self, orientation = 'vertical', fg_color = 'transparent')
+            
+        else:
+            x = int((s_pantalla[0] / 2) - (s_app[0] / 2))
+            y = int((s_pantalla[1] / 2) - (s_app[1] / 2))
+            self.geometry(f'{s_app[0]}x{s_app[1]}+{x}+{y}')
+            self.resizable(False, False)
+
+            self.frame_principal = ctk.CTkFrame(self, fg_color = 'transparent')
+            
+
+        self.frame_principal.grid(row = 0, column = 0, sticky = 'nsew', padx = 5, pady = 5)
+        self.frame_principal.grid_columnconfigure(0, weight = 0)
+
+        self.frame_preset = ctk.CTkFrame(self.frame_principal)
         self.frame_preset.pack(pady = (15, 5), padx = 20, fill = 'x')
         self.frame_preset.grid_columnconfigure(1, weight=1)
 
@@ -131,7 +155,7 @@ class Reverb402(ctk.CTk):
         self.btn_next_preset = ctk.CTkButton(self.frame_preset, text = '▶', width = 40, command = self.preset_siguiente)
         self.btn_next_preset.grid(row = 0, column = 2, padx = 10, pady = 10)
 
-        self.frame_archivo = ctk.CTkFrame(self)
+        self.frame_archivo = ctk.CTkFrame(self.frame_principal)
         self.frame_archivo.pack(pady = 15, padx = 20, fill = 'x')
 
         self.btn_cargar_audio = ctk.CTkButton(self.frame_archivo, text = 'Cargar archivo de audio', font = ctk.CTkFont(size = 14), command = self.cargar_audio)
@@ -139,7 +163,7 @@ class Reverb402(ctk.CTk):
         self.lbl_estado_audio = ctk.CTkLabel(self.frame_archivo, text = 'No hay ningún archivo cargado', font = ctk.CTkFont(size = 14))
         self.lbl_estado_audio.grid(row = 0, column = 1, padx = 10, pady = 10)
 
-        self.frame_visualizador = ctk.CTkFrame(self, width = 550, height = 350, fg_color = '#1a1a1a', corner_radius = 10)
+        self.frame_visualizador = ctk.CTkFrame(self.frame_principal, width = 550, height = 400, fg_color = '#1a1a1a', corner_radius = 10)
         self.frame_visualizador.pack_propagate(False)
         self.frame_visualizador.pack(fill = 'both', expand = True, padx = 15, pady = 15)
 
@@ -170,7 +194,7 @@ class Reverb402(ctk.CTk):
 
         self.fig.tight_layout()
 
-        self.frame_parametros = ctk.CTkFrame(self)
+        self.frame_parametros = ctk.CTkFrame(self.frame_principal)
         self.frame_parametros.pack(pady = 15, padx = 20, fill = 'x')
 
         self.frame_knobs = ctk.CTkFrame(self.frame_parametros, fg_color = 'transparent')
@@ -216,9 +240,8 @@ class Reverb402(ctk.CTk):
         self.knob_mix.pack(pady = 5)
         self.knob_mix.set(0.4)
 
-        self.frame_playback = ctk.CTkFrame(self, fg_color = 'transparent', height = 60)
+        self.frame_playback = ctk.CTkFrame(self.frame_principal, fg_color = 'transparent')
         self.frame_playback.pack(fill = 'x', side = 'bottom', padx = 15, pady = 20)
-        self.frame_playback.pack_propagate(False)
 
         self.frame_transporte = ctk.CTkFrame(self.frame_playback, fg_color = 'transparent')
         self.frame_transporte.pack(side = 'left', fill = 'y')
